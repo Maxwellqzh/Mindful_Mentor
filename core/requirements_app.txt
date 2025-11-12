@@ -1,0 +1,5 @@
+# 音频聊天应用依赖
+kivy>=2.0.0
+openai-whisper
+openai
+
