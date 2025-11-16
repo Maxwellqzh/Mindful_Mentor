@@ -18,8 +18,23 @@ class MindfulMentorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mindful Mentor',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFE8B4B8), // 柔和的粉色调
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
+        fontFamily: 'Roboto',
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        cardTheme: const CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(20)),
+          ),
+        ),
       ),
       home: const MentorHomePage(),
     );
@@ -38,9 +53,7 @@ class _MentorHomePageState extends State<MentorHomePage> {
   bool _isRecording = false;
   bool _isProcessing = false;
   String? _recordedFilePath;
-  final List<String> _messages = <String>[
-    '欢迎使用 Mindful Mentor，与 AI 心理助手畅聊吧。'
-  ];
+  final List<String> _messages = <String>['欢迎使用 Mindful Mentor，与 AI 心理助手畅聊吧。'];
   StreamSubscription<RecordState>? _recordSub;
 
   @override
@@ -84,7 +97,7 @@ class _MentorHomePageState extends State<MentorHomePage> {
       final String filePath =
           '${appDir.path}/mindful_mentor_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
-      final RecordConfig config = const RecordConfig(
+      const RecordConfig config = RecordConfig(
         encoder: AudioEncoder.aacLc,
         bitRate: 128000,
         sampleRate: 44100,
@@ -153,41 +166,111 @@ class _MentorHomePageState extends State<MentorHomePage> {
     if (!mounted) {
       return;
     }
+    final ColorScheme scheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              Icons.info_outline,
+              color: scheme.onErrorContainer,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: scheme.onErrorContainer,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: scheme.errorContainer,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: const Color(0xFFF5F0F0), // 柔和的米色背景
       appBar: AppBar(
-        title: const Text('Mindful Mentor'),
-        centerTitle: true,
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.favorite,
+              color: scheme.primary,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Mindful Mentor',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                scheme.primaryContainer.withValues(alpha: 0.3),
+                scheme.surfaceContainerHighest.withValues(alpha: 0.2),
+              ],
+            ),
+          ),
+        ),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              RecordingStatusCard(
-                isRecording: _isRecording,
-                isProcessing: _isProcessing,
-                recordedFilePath: _recordedFilePath,
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: MessageList(messages: _messages),
-              ),
-              const SizedBox(height: 16),
-              RecordControlButton(
-                isRecording: _isRecording,
-                isProcessing: _isProcessing,
-                onPressed: _toggleRecording,
-              ),
-            ],
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                scheme.surfaceContainerHighest.withValues(alpha: 0.1),
+                const Color(0xFFF5F0F0),
+              ],
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                RecordingStatusCard(
+                  isRecording: _isRecording,
+                  isProcessing: _isProcessing,
+                  recordedFilePath: _recordedFilePath,
+                ),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: MessageList(messages: _messages),
+                ),
+                const SizedBox(height: 20),
+                RecordControlButton(
+                  isRecording: _isRecording,
+                  isProcessing: _isProcessing,
+                  onPressed: _toggleRecording,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -210,28 +293,84 @@ class RecordingStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String statusTitle = isRecording ? '录制中...' : '准备开始录音';
+    final ColorScheme scheme = theme.colorScheme;
+    final String statusTitle = isRecording ? '正在录音...' : '准备就绪';
     final String statusSubtitle = isProcessing
         ? '正在处理音频，请稍候'
         : recordedFilePath != null
-            ? '最近的录音文件: ${File(recordedFilePath!).uri.pathSegments.last}'
-            : '尚未生成录音文件';
+            ? '已保存录音文件'
+            : '点击下方按钮开始录音';
 
-    return Card(
-      elevation: 2,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.primaryContainer.withValues(alpha: 0.4),
+            scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.all(20),
+        child: Row(
           children: <Widget>[
-            Text(
-              statusTitle,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isRecording
+                    ? scheme.errorContainer.withValues(alpha: 0.3)
+                    : scheme.primaryContainer.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isRecording ? Icons.mic : Icons.mic_none,
+                color: isRecording ? scheme.error : scheme.primary,
+                size: 28,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(statusSubtitle),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    statusTitle,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    statusSubtitle,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.7),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isProcessing)
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                ),
+              ),
           ],
         ),
       ),
@@ -251,26 +390,121 @@ class MessageList extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: scheme.outline.withValues(alpha: 0.4),
+          color: scheme.outline.withValues(alpha: 0.15),
+          width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Scrollbar(
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: messages.length,
-          itemBuilder: (BuildContext context, int index) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                messages[index],
-                style: theme.textTheme.bodyLarge,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: messages.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.chat_bubble_outline,
+                      size: 48,
+                      color: scheme.onSurface.withValues(alpha: 0.3),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '开始对话吧',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Scrollbar(
+                thumbVisibility: true,
+                radius: const Radius.circular(10),
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  itemCount: messages.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final bool isFirstMessage = index == 0;
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        bottom: index == messages.length - 1 ? 0 : 16,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (!isFirstMessage)
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: scheme.primaryContainer
+                                    .withValues(alpha: 0.5),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.smart_toy,
+                                size: 18,
+                                color: scheme.primary,
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: scheme.secondaryContainer
+                                    .withValues(alpha: 0.5),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.waving_hand,
+                                size: 18,
+                                color: scheme.secondary,
+                              ),
+                            ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isFirstMessage
+                                    ? scheme.secondaryContainer
+                                        .withValues(alpha: 0.4)
+                                    : scheme.primaryContainer
+                                        .withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Text(
+                                messages[index],
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: scheme.onSurface,
+                                  height: 1.5,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
-            );
-          },
-        ),
       ),
     );
   }
@@ -292,27 +526,62 @@ class RecordControlButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final Color backgroundColor =
-        isRecording ? scheme.error : scheme.primary;
-    final Color foregroundColor =
-        isRecording ? scheme.onError : scheme.onPrimary;
 
-    return SizedBox(
-      height: 64,
-      child: ElevatedButton.icon(
-        icon: Icon(isRecording ? Icons.stop : Icons.mic),
-        label: Text(isRecording ? '停止录音' : '开始录音'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: foregroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+    return Container(
+      height: 72,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(36),
+        boxShadow: [
+          BoxShadow(
+            color: (isRecording ? scheme.error : scheme.primary)
+                .withValues(alpha: 0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+            spreadRadius: 0,
           ),
-        ),
+        ],
+      ),
+      child: ElevatedButton(
         onPressed: isProcessing ? null : () => onPressed(),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isRecording ? scheme.error : scheme.primary,
+          foregroundColor: isRecording ? scheme.onError : scheme.onPrimary,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(36),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isRecording)
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(right: 12),
+                decoration: BoxDecoration(
+                  color: scheme.onError,
+                  shape: BoxShape.circle,
+                ),
+              )
+            else
+              const Icon(
+                Icons.mic,
+                size: 24,
+              ),
+            const SizedBox(width: 12),
+            Text(
+              isRecording ? '停止录音' : '开始录音',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
-
