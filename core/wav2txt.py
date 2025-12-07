@@ -48,23 +48,23 @@ def transcribe_audio(
             import torch
             if torch.cuda.is_available():
                 device = "cuda"
-                print(f"✓ 检测到CUDA，GPU加速已启用 (设备: {torch.cuda.get_device_name(0)})")
+                print(f"√ 检测到CUDA，GPU加速已启用 (设备: {torch.cuda.get_device_name(0)})")
             else:
                 device = "cpu"
-                print("✓ 使用CPU模式")
+                print("√ 使用CPU模式")
         except Exception:
             device = "cpu"
-            print("⚠ PyTorch检测失败，使用CPU模式")
+            print("! PyTorch检测失败，使用CPU模式")
     elif device == "cuda":
         try:
             import torch
             if not torch.cuda.is_available():
-                print("⚠ CUDA不可用，自动切换到CPU模式")
+                print("! CUDA不可用，自动切换到CPU模式")
                 device = "cpu"
             else:
-                print(f"✓ 使用GPU加速 (设备: {torch.cuda.get_device_name(0)})")
+                print(f"√ 使用GPU加速 (设备: {torch.cuda.get_device_name(0)})")
         except Exception:
-            print("⚠ CUDA检测失败，自动切换到CPU模式")
+            print("! CUDA检测失败，自动切换到CPU模式")
             device = "cpu"
     
     # 加载 Whisper 模型，处理可能的DLL错误
@@ -74,7 +74,7 @@ def transcribe_audio(
     except OSError as e:
         error_str = str(e)
         if "DLL" in error_str or "动态链接库" in error_str or "WinError" in error_str:
-            print("\n⚠ 检测到PyTorch DLL加载错误...")
+            print("\n! 检测到PyTorch DLL加载错误...")
             
             if device == "cuda":
                 print("\nGPU版本PyTorch DLL加载失败。解决方案:")
@@ -91,7 +91,7 @@ def transcribe_audio(
                 import os
                 os.environ['CUDA_VISIBLE_DEVICES'] = ''
                 model = whisper.load_model(model_name, device="cpu")
-                print("✓ 已切换到CPU模式，继续处理...")
+                print("√ 已切换到CPU模式，继续处理...")
             except Exception as e2:
                 raise RuntimeError(
                     f"PyTorch DLL加载完全失败。\n\n"
