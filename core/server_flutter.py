@@ -1,6 +1,8 @@
 import uvicorn
 import shutil
 import os
+# 设置 Hugging Face 镜像地址 (使用国内学术镜像)
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from audio_app import AudioDialogueSystem
 

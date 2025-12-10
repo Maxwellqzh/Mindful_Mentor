@@ -24,7 +24,7 @@ def startup_event():
     global dialogue_system
     print("正在初始化系统，加载模型中，请稍候...")
     # 这里可以根据需要调整参数
-    dialogue_system = AudioDialogueSystem(whisper_size="base")
+    dialogue_system = AudioDialogueSystem(whisper_size="small")
     print("模型加载完毕，服务已就绪！")
 
 @app.post("/process")
