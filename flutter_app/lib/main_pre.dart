@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-// import 'dart:typed_data'; // 不再需要，因为移除了 PowerShell 编码逻辑
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-import 'package:http/http.dart' as http; // 新增：用于发送网络请求
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,13 +55,11 @@ class _MentorHomePageState extends State<MentorHomePage> {
   bool _isRecording = false;
   bool _isProcessing = false;
   String? _recordedFilePath;
-  
-  // 聊天记录列表
+  // Chat message model: distinguishes bot replies vs user info
   final List<ChatMessage> _messages = <ChatMessage>[
     ChatMessage(text: '欢迎使用 Mindful Mentor，与 AI 心理助手畅聊吧。', isBot: true),
   ];
-  
-  // 终端日志列表
+  // Terminal-like logs for status and prompts (left pane)
   final List<String> _logs = <String>[];
   StreamSubscription<RecordState>? _recordSub;
 
@@ -84,6 +81,33 @@ class _MentorHomePageState extends State<MentorHomePage> {
     _recordSub?.cancel();
     _recorder.dispose();
     super.dispose();
+  }
+
+  // Encode a string as UTF-16LE and Base64-encode it for PowerShell -EncodedCommand
+  String _toBase64Utf16Le(String s) {
+    final List<int> codeUnits = s.codeUnits;
+    final Uint8List bytes = Uint8List(codeUnits.length * 2);
+    final ByteData bd = bytes.buffer.asByteData();
+    for (int i = 0; i < codeUnits.length; i++) {
+      bd.setUint16(i * 2, codeUnits[i], Endian.little);
+    }
+    return base64Encode(bytes);
+  }
+
+  // Build a PowerShell command that invokes the given python executable with
+  // script and args. Each argument is single-quoted and internal single quotes
+  // are doubled (PowerShell single-quote escaping). The returned string is
+  // the Base64 UTF-16LE encoded command suitable for -EncodedCommand.
+  String _buildPsEncodedCommand(
+      String pythonExe, String scriptPath, List<String> args) {
+    String escape(String s) => s.replaceAll("'", "''");
+    final List<String> parts = <String>[];
+    parts.add("& '${escape(pythonExe)}' '${escape(scriptPath)}'");
+    for (final String a in args) {
+      parts.add("'${escape(a)}'");
+    }
+    final String cmd = parts.join(' ');
+    return _toBase64Utf16Le(cmd);
   }
 
   Future<void> _toggleRecording() async {
@@ -144,76 +168,245 @@ class _MentorHomePageState extends State<MentorHomePage> {
         _logs.add('录音完成，文件已保存。');
       });
 
-      // 录音结束后，直接调用新的服务器处理逻辑
-      await _processAudioWithServer(path);
-      
+      await _simulateModelWorkflow(path);
     } catch (error) {
       _showSnackBar('录音停止失败: $error');
     }
   }
 
-  // 修改后的核心函数：通过 HTTP 请求与 Python Server 交互
-  Future<void> _processAudioWithServer(String filePath) async {
-    if (!mounted) return;
-    
+  Future<void> _simulateModelWorkflow(String filePath) async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isProcessing = true;
-      _logs.add('正在上传音频到本地服务器...');
+      // _messages.add('正在准备将音频发送给 AI 模型...');
     });
 
     try {
-      // 1. 创建请求 URL (确保 server.py 正在运行且端口一致)
-      // 如果是在 Android 模拟器运行，请用 'http://10.0.2.2:8000/chat'
-      // 如果是在 Windows 桌面运行，'http://127.0.0.1:8000/chat' 即可
-      var uri = Uri.parse('http://127.0.0.1:8000/chat');
+      // 模拟处理流程：第 1 周无需真正调用后端。
+      // await Future<void>.delayed(const Duration(seconds: 2));
 
-      // 2. 构建 Multipart 请求
-      var request = http.MultipartRequest('POST', uri);
-      
-      // 添加文件 (字段名 'file' 必须和 server.py 中的参数名一致)
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      // setState(() {
+      //   _messages.add('音频文件路径：$filePath');
+      //   _messages.add('AI 模型回复将在后续迭代中接入。');
+      // });
+      const String wav2txtScriptPath = '..\\core\\wav2txt.py';
+      const String wav2emoScriptPath = '..\\core\\wav2emotion.py';
+      const String txt2reviewScriptPath = '..\\core\\txt2review.py';
+      const String pythonExe = '..\\mm_env\\python.exe';
+      // Build PowerShell command using encoded command for proper argument handling
+      final String wav2txtEncoded = _buildPsEncodedCommand(
+        pythonExe,
+        wav2txtScriptPath,
+        [filePath, '--language', 'zh'],
+      );
+      final ProcessResult txtResult = await Process.run(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-EncodedCommand', wav2txtEncoded],
+        runInShell: false,
+        stdoutEncoding: systemEncoding,
+        stderrEncoding: systemEncoding,
+      );
+      if (txtResult.exitCode == 0) {
+        final String txtOutput = txtResult.stdout as String;
+        setState(() {
+          _logs.add('音频转文本完成.\n$txtOutput');
+        });
+        _showSnackBar('音频转文本完成!', isError: false);
+        final String txtFilePath = filePath.replaceAll('.wav', '.txt');
+        final File txtFile = File(txtFilePath);
+        if (await txtFile.exists()) {
+          final String transcribedText = await txtFile.readAsString();
+          setState(() {
+            // add recognized speech as user info (right-side)
+            _messages.add(ChatMessage(text: transcribedText, isBot: false));
+          });
+        } else {
+          setState(() {
+            _logs.add('转录文本文件不存在! 后端输出: $txtOutput');
+          });
+          _showSnackBar('转录文本文件不存在! 请检查文件路径。');
+        }
+      } else {
+        final String errorOutput = txtResult.stderr as String;
+        final String stdOutput = txtResult.stdout as String;
+        setState(() {
+          _logs.add('音频转文本失败! 后端输出:\n$errorOutput\n$stdOutput');
+        });
+        _showSnackBar('音频转文本失败!');
+        // 直接返回，不进行后续处理
+        return;
+      }
+      // Build PowerShell command using encoded command for proper argument handling
+      final String wav2emoEncoded = _buildPsEncodedCommand(
+        pythonExe,
+        wav2emoScriptPath,
+        [filePath],
+      );
+      final ProcessResult emoResult = await Process.run(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-EncodedCommand', wav2emoEncoded],
+        runInShell: false,
+        stdoutEncoding: systemEncoding,
+        stderrEncoding: systemEncoding,
+      );
+      String emoRecResult = '';
+      if (emoResult.exitCode == 0) {
+        final String emoOutput = emoResult.stdout as String;
+        setState(() {
+          _logs.add('情绪识别完成.\n$emoOutput');
+        });
+        _showSnackBar('情绪识别完成!', isError: false);
+        // 抓取控制台输出的最后一行, 格式为'识别到的情绪: xxxxx'
+        final List<String> lines = emoOutput.split('\n');
+        for (final String line in lines) {
+          if (line.startsWith('识别到的情绪:')) {
+            emoRecResult = line;
+          }
+        }
+        if (emoRecResult.isNotEmpty) {
+          setState(() {
+            // treat emotion as user info as well
+            _messages.add(ChatMessage(text: emoRecResult, isBot: false));
+          });
+        } else {
+          setState(() {
+            _logs.add('情绪识别结果为空! 后端输出:\n$emoOutput');
+          });
+          _showSnackBar('情绪识别结果为空! 请检查模型输出。');
+        }
+      } else {
+        final String errorOutput = emoResult.stderr as String;
+        final String stdOutput = emoResult.stdout as String;
+        setState(() {
+          _logs.add('情绪识别失败! 后端输出:\n$errorOutput\n$stdOutput');
+        });
+        _showSnackBar('情绪识别失败!');
+        // 直接返回，不进行后续处理
+        return;
+      }
+      final String txtFilePath = filePath.replaceAll('.wav', '.txt');
 
-      // 3. 发送请求
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        // 4. 解析 JSON 结果
-        // Python 返回格式: {"text": "...", "emotion": "...", "response": "..."}
-        // 使用 utf8.decode 防止中文乱码
-        var jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-
-        if (jsonResponse.containsKey('error')) {
-             throw Exception(jsonResponse['error']);
+      // 生成上一次会话上下文（寻找最近的完整三元组：
+      // <User Message>\n<User Emotion>\n<Chatbot Reply>）
+      // 如果没有找到这样的三元组，则传 'None'
+      String convoParam = 'None';
+      try {
+        int foundBotIdx = -1;
+        String u1 = '';
+        String u2 = '';
+        String bot = '';
+        for (int i = _messages.length - 1; i >= 0; i--) {
+          if (_messages[i].isBot) {
+            // 检查前两条是否为用户消息
+            if (i - 2 >= 0 &&
+                !_messages[i - 1].isBot &&
+                !_messages[i - 2].isBot) {
+              foundBotIdx = i;
+              u1 = _messages[i - 2].text;
+              u2 = _messages[i - 1].text;
+              bot = _messages[i].text;
+              break;
+            }
+          }
+        }
+        if (foundBotIdx != -1) {
+          // 转义单引号以便在 PowerShell 单引号字符串中安全传递
+          final String u1Esc = u1.replaceAll("'", "''");
+          final String u2Esc = u2.replaceAll("'", "''");
+          final String botEsc = bot.replaceAll("'", "''");
+          convoParam = '我说了: $u1Esc.\n$u2Esc.\n你回复: $botEsc';
+        }
+      } catch (e) {
+        convoParam = 'None';
+      }
+      // Build a safely-quoted PowerShell command so parameters (including
+      // paths, spaces, single quotes and newlines) are passed correctly.
+      final String reviewEncoded = _buildPsEncodedCommand(
+        pythonExe,
+        txt2reviewScriptPath,
+        [txtFilePath, '-e', emoRecResult, '-p', convoParam],
+      );
+      final ProcessResult reviewResult = await Process.run(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-EncodedCommand', reviewEncoded],
+        runInShell: false,
+        stdoutEncoding: systemEncoding,
+        stderrEncoding: systemEncoding,
+      );
+      if (reviewResult.exitCode == 0) {
+        final String reviewOutput = reviewResult.stdout as String;
+        // 尝试从 reviewOutput 中提取真实的 review 内容（位于两个 ====== 分隔符之间）。
+        String extractedReview = reviewOutput;
+        try {
+          final List<String> lines = reviewOutput.split(RegExp(r'\r?\n'));
+          final String sepLine = List.filled(60, '=').join();
+          final List<int> sepIndices = <int>[];
+          for (int i = 0; i < lines.length; i++) {
+            if (lines[i].trim() == sepLine) sepIndices.add(i);
+          }
+          if (sepIndices.length >= 3) {
+            // review 在第二个分隔符之后、第三个分隔符之前
+            final int start = sepIndices[1] + 1;
+            final int end = sepIndices[2];
+            if (start < end) {
+              extractedReview = lines.sublist(start, end).join('\n').trim();
+            }
+          } else {
+            // 兜底策略：根据标题关键字查找并尝试提取
+            final int titleIndex =
+                lines.indexWhere((l) => l.contains('知心朋友的回应预览'));
+            if (titleIndex != -1) {
+              int nextSep = -1;
+              for (int i = titleIndex + 1; i < lines.length; i++) {
+                if (lines[i].trim() == sepLine) {
+                  nextSep = i;
+                  break;
+                }
+              }
+              if (nextSep != -1) {
+                int thirdSep = -1;
+                for (int i = nextSep + 1; i < lines.length; i++) {
+                  if (lines[i].trim() == sepLine) {
+                    thirdSep = i;
+                    break;
+                  }
+                }
+                if (thirdSep != -1 && nextSep + 1 < thirdSep) {
+                  extractedReview =
+                      lines.sublist(nextSep + 1, thirdSep).join('\n').trim();
+                } else if (nextSep + 1 < lines.length) {
+                  extractedReview =
+                      lines.sublist(nextSep + 1).join('\n').trim();
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // 如果解析失败，保留原始输出
+          extractedReview = reviewOutput;
         }
 
-        String userText = jsonResponse['text'] ?? '';
-        String emotion = jsonResponse['emotion'] ?? 'unknown';
-        String aiResponse = jsonResponse['response'] ?? '';
-
         setState(() {
-          _logs.add('服务器处理完成。');
-          _logs.add('识别文本: $userText');
-          _logs.add('识别情绪: $emotion');
-          
-          // 添加用户消息 (左侧)
-          _messages.add(ChatMessage(text: userText, isBot: false));
-          
-          // 添加 AI 回复 (右侧)
-          _messages.add(ChatMessage(text: aiResponse, isBot: true));
+          _logs.add('AI 心理助手已回复: $reviewOutput');
+          // add bot reply to chat messages (right-side)
+          _messages.add(ChatMessage(text: extractedReview, isBot: true));
         });
-        
         _showSnackBar('AI 心理助手回复已生成!', isError: false);
-        
       } else {
-        throw Exception('服务器错误: ${response.statusCode}\n后端返回: ${response.body}');
+        final String errorOutput = reviewResult.stderr as String;
+        final String stdOutput = reviewResult.stdout as String;
+        setState(() {
+          _logs.add('AI 心理助手回复生成失败! 后端输出： $errorOutput $stdOutput');
+        });
+        _showSnackBar('AI 心理助手回复生成失败!');
       }
-
     } catch (error) {
       setState(() {
-        _logs.add('连接服务器失败: $error');
+        _logs.add('音频处理失败: $error');
       });
-      _showSnackBar('请求失败，请检查 server.py 是否运行');
+      _showSnackBar('音频处理失败: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -488,6 +681,7 @@ class TerminalPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
+        // Use app theme colors instead of pure black for a warmer, cohesive look
         color: scheme.primaryContainer.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: scheme.outline.withValues(alpha: 0.08)),
@@ -576,6 +770,7 @@ class _MessageListState extends State<MessageList> {
   @override
   void initState() {
     super.initState();
+    // Scroll to bottom after first frame is rendered
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom();
     });
@@ -584,7 +779,9 @@ class _MessageListState extends State<MessageList> {
   @override
   void didUpdateWidget(MessageList oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Check if new messages were added
     if (widget.messages.length > oldWidget.messages.length) {
+      // Scroll to bottom after the list is updated
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToBottom();
       });
