@@ -3,3 +3,4 @@ data/emotion/RawData
 mm_env
 *.pyc
 *.pt
+zip

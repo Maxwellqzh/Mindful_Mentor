@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-// import 'dart:typed_data'; // 不再需要，因为移除了 PowerShell 编码逻辑
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-import 'package:http/http.dart' as http; // 新增：用于发送网络请求
+import 'package:http/http.dart' as http; 
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -104,15 +104,17 @@ class _MentorHomePageState extends State<MentorHomePage> {
       }
 
       final Directory appDir = await getApplicationDocumentsDirectory();
-      final Directory saveDir = Directory('${appDir.path}\\mindful_mentor');
+      final Directory saveDir = Directory('${appDir.path}/mindful_mentor'); // Android 使用正斜杠 /
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
       }
-      final String filePath =
-          '${saveDir.path}\\mindful_mentor_${DateTime.now().millisecondsSinceEpoch}.wav';
+      // 使用 .m4a 格式，在 Android 上兼容性更好且体积小（librosa 也能读）
+      // 如果你的后端一定要 .wav，也可以改回 .wav
+      // 统一使用 / 作为路径分隔符（Windows 和 Android 都支持）
+      final String filePath = '${saveDir.path}/audio_record.wav';
 
       const RecordConfig config = RecordConfig(
-        encoder: AudioEncoder.wav,
+        encoder: AudioEncoder.wav, // WAV 格式在 Windows/Android 兼容性最好
         bitRate: 128000,
         sampleRate: 44100,
         numChannels: 1,
@@ -141,10 +143,10 @@ class _MentorHomePageState extends State<MentorHomePage> {
 
       setState(() {
         _recordedFilePath = path;
-        _logs.add('录音完成，文件已保存。');
+        _logs.add('录音完成');
       });
 
-      // 录音结束后，直接调用新的服务器处理逻辑
+      // 录音结束后，直接上传处理
       await _processAudioWithServer(path);
       
     } catch (error) {
@@ -152,35 +154,46 @@ class _MentorHomePageState extends State<MentorHomePage> {
     }
   }
 
-  // 修改后的核心函数：通过 HTTP 请求与 Python Server 交互
+  // ================= 核心修改：网络请求部分 =================
   Future<void> _processAudioWithServer(String filePath) async {
     if (!mounted) return;
     
     setState(() {
       _isProcessing = true;
-      _logs.add('正在上传音频到本地服务器...');
+      _logs.add('正在上传音频到服务器...');
     });
+    
 
-    try {
-      // 1. 创建请求 URL (确保 server.py 正在运行且端口一致)
-      // 如果是在 Android 模拟器运行，请用 'http://10.0.2.2:8000/chat'
-      // 如果是在 Windows 桌面运行，'http://127.0.0.1:8000/chat' 即可
-      var uri = Uri.parse('http://127.0.0.1:8000/chat');
+   try {
+      String serverIp;
+      
+      // 智能判断当前运行的平台
+      if (Platform.isAndroid) {
+        // --- Android 模式 ---
+        // 如果你是用【模拟器】，请使用 '10.0.2.2'
+        // 如果你是用【真机】，请使用你的电脑局域网 IP，例如 '192.168.1.5'
+        serverIp = '192.168.174.210'; 
+      } else {
+        // --- Windows 模式 ---
+        // 电脑自己访问自己，直接用 localhost
+        serverIp = '127.0.0.1';
+      }
 
-      // 2. 构建 Multipart 请求
+      // 动态构建 URL
+      var uri = Uri.parse('http://$serverIp:8000/chat');
+
+      // 构建 Multipart 请求
       var request = http.MultipartRequest('POST', uri);
       
       // 添加文件 (字段名 'file' 必须和 server.py 中的参数名一致)
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
-      // 3. 发送请求
-      var streamedResponse = await request.send();
+      // 设置超时时间 (AI 处理可能比较慢，设长一点)
+      var streamedResponse = await request.send().timeout(const Duration(seconds: 30));
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        // 4. 解析 JSON 结果
-        // Python 返回格式: {"text": "...", "emotion": "...", "response": "..."}
-        // 使用 utf8.decode 防止中文乱码
+        // 解析 JSON 结果
         var jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
 
         if (jsonResponse.containsKey('error')) {
@@ -196,24 +209,42 @@ class _MentorHomePageState extends State<MentorHomePage> {
           _logs.add('识别文本: $userText');
           _logs.add('识别情绪: $emotion');
           
-          // 添加用户消息 (左侧)
+          // 添加用户消息
           _messages.add(ChatMessage(text: userText, isBot: false));
           
-          // 添加 AI 回复 (右侧)
+          // 添加 AI 回复
           _messages.add(ChatMessage(text: aiResponse, isBot: true));
         });
         
-        _showSnackBar('AI 心理助手回复已生成!', isError: false);
+        _showSnackBar('AI 回复已生成!', isError: false);
         
       } else {
-        throw Exception('服务器错误: ${response.statusCode}\n后端返回: ${response.body}');
+        throw Exception('服务器错误 (${response.statusCode}): ${response.body}');
       }
 
     } catch (error) {
+      String errorMsg = error.toString();
+      if (errorMsg.contains('SocketException')) {
+         errorMsg = '连接失败。请检查：\n1. 手机和电脑在同一WiFi\n2. 代码中的IP是否正确\n3. 电脑防火墙是否关闭';
+      } else if (errorMsg.contains('Timeout')) {
+         errorMsg = '请求超时，可能是模型处理太慢。';
+      }
+      
       setState(() {
-        _logs.add('连接服务器失败: $error');
+        _logs.add('错误: $error');
       });
-      _showSnackBar('请求失败，请检查 server.py 是否运行');
+      _showSnackBar('请求失败', isError: true);
+      // 可以在界面上弹窗显示详细错误建议，方便调试
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("连接错误"),
+            content: Text(errorMsg),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("好的"))],
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
